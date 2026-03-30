@@ -4,6 +4,12 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function radixClick(element) {
+  element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
 function waitForElement(selector, timeout = 15000) {
   return new Promise((resolve, reject) => {
     const el = document.querySelector(selector);
@@ -49,12 +55,14 @@ function waitForElementWithText(selector, text, timeout = 10000) {
   });
 }
 
+// ── Composer ──
+
 async function setPromptText(text) {
-  const textarea = await waitForElement("#prompt-textarea");
-  textarea.focus();
+  const editor = document.getElementById("prompt-textarea");
+  editor.focus();
   await delay(100);
 
-  // Select all existing content and replace with our text
+  // ProseMirror doesn't respond to value setting — use execCommand
   document.execCommand("selectAll", false, null);
   document.execCommand("insertText", false, text);
   await delay(300);
@@ -62,117 +70,82 @@ async function setPromptText(text) {
 
 async function clickSend() {
   await delay(300);
-  const btn = document.querySelector("#composer-submit-button")
-    || document.querySelector('[data-testid="send-button"]');
-  if (!btn) throw new Error("Send button not found");
+  const btn = await waitForElement('[data-testid="send-button"]', 5000);
   btn.click();
 }
 
 // ── Model Selection ──
 
-function logAvailableElements(context) {
-  const testIds = [...document.querySelectorAll("[data-testid]")]
-    .map(el => el.getAttribute("data-testid"))
-    .filter(id => /model|switcher|composer|research|plus/i.test(id));
-  console.log(`[Parallel Chat] ${context} — data-testid attrs:`, testIds);
+async function selectModel(slug) {
+  // slug: 'gpt-5-3' | 'gpt-5-4-thinking' | 'gpt-5-4-pro'
+  const btn = await waitForElement('[data-testid="model-switcher-dropdown-button"]');
+  radixClick(btn);
+  await delay(300);
 
-  const menuItems = [...document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]')]
-    .map(el => ({ role: el.getAttribute("role"), text: el.textContent.trim().substring(0, 60), testId: el.getAttribute("data-testid") }));
-  if (menuItems.length) console.log(`[Parallel Chat] ${context} — menu items:`, menuItems);
+  const item = await waitForElement(`[data-testid="model-switcher-${slug}"]`);
+  radixClick(item);
+  await delay(300);
 }
 
-async function openModelSwitcher() {
-  // Try multiple selectors for the model switcher button
-  const selectors = [
-    '[data-testid="model-switcher-dropdown-button"]',
-    '[data-testid*="model-switcher"]',
-    '[aria-haspopup="menu"][data-testid*="model"]',
-    'button[data-testid*="switcher"]',
-  ];
-  for (const sel of selectors) {
-    const btn = document.querySelector(sel);
-    if (btn) {
-      btn.click();
-      await delay(400);
-      return;
-    }
-  }
-  // Log diagnostics before failing
-  logAvailableElements("openModelSwitcher failed");
-  throw new Error("Model switcher button not found");
-}
-
-async function selectModel(modelName) {
-  await openModelSwitcher();
-
-  // First try data-testid containing the model name
-  const testIdPatterns = [
-    `[data-testid*="${modelName}"]`,
-    `[data-testid*="model-switcher"][data-testid*="${modelName}"]`,
-  ];
-  for (const sel of testIdPatterns) {
-    const el = document.querySelector(sel);
-    if (el) {
-      el.click();
-      await delay(500);
-      return;
-    }
-  }
-
-  // Fall back to text-based matching on menu items
-  const menuItems = document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]');
-  for (const el of menuItems) {
-    const text = el.textContent.trim().toLowerCase();
-    if (text.includes(modelName.toLowerCase())) {
-      el.click();
-      await delay(500);
-      return;
-    }
-  }
-
-  logAvailableElements(`selectModel("${modelName}") failed`);
-  throw new Error(`Model option "${modelName}" not found in dropdown`);
-}
+// ── Thinking Effort ──
 
 async function selectThinkingEffort(effortText) {
-  // Try multiple selectors for the thinking effort pill
-  const pillSelectors = [
-    "button.__composer-pill",
-    '[data-testid*="effort"]',
-    '[data-testid*="thinking"]',
-    'button[aria-haspopup][class*="pill"]',
-  ];
-  let pill = null;
-  for (const sel of pillSelectors) {
-    pill = document.querySelector(sel);
-    if (pill) break;
-  }
-  if (!pill) {
-    logAvailableElements("selectThinkingEffort pill not found");
-    throw new Error("Thinking effort pill not found");
-  }
-  pill.click();
-  await delay(400);
-
-  // Find and click the effort option — try multiple roles
-  const option = await waitForElementWithText('[role="menuitemradio"], [role="menuitem"], [role="option"]', effortText, 5000);
-  option.click();
+  // effortText: 'Light' | 'Standard' | 'Extended' | 'Heavy'
+  const pill = await waitForElement("button.__composer-pill", 5000);
+  radixClick(pill);
   await delay(300);
+
+  const option = await waitForElementWithText('[role="menuitemradio"]', effortText, 5000);
+  radixClick(option);
+  await delay(200);
 }
 
 async function trySelectThinkingEffort(effortText) {
   try {
     await selectThinkingEffort(effortText);
   } catch {
-    // Effort pill may not be available for this model — continue without it
+    // Effort pill may not be available — continue without it
   }
+}
+
+// ── Plus Menu Features ──
+
+async function selectPlusMenuFeature(featureName) {
+  const plusBtn = await waitForElement('[data-testid="composer-plus-btn"]');
+  radixClick(plusBtn);
+  await delay(300);
+
+  // Try main menu first
+  const items = document.querySelectorAll('[role="menuitemradio"], [role="menuitem"]');
+  const target = Array.from(items).find(i => i.textContent.trim() === featureName);
+
+  if (target) {
+    radixClick(target);
+    await delay(300);
+    return;
+  }
+
+  // Feature might be in the "More" submenu
+  const moreItem = Array.from(items).find(i => i.textContent.trim() === "More");
+  if (moreItem) {
+    moreItem.focus();
+    moreItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await delay(300);
+
+    const subOption = await waitForElementWithText('[role="menuitemradio"]', featureName, 5000);
+    radixClick(subOption);
+    await delay(300);
+    return;
+  }
+
+  throw new Error(`Plus menu feature "${featureName}" not found`);
 }
 
 // ── Flows ──
 
 async function flowThinking(prompt, effort) {
   await waitForElement("#prompt-textarea");
-  await selectModel("thinking");
+  await selectModel("gpt-5-4-thinking");
   await selectThinkingEffort(effort);
   await setPromptText(prompt);
   await clickSend();
@@ -180,7 +153,7 @@ async function flowThinking(prompt, effort) {
 
 async function flowPro(prompt, effort) {
   await waitForElement("#prompt-textarea");
-  await selectModel("pro");
+  await selectModel("gpt-5-4-pro");
   await trySelectThinkingEffort(effort);
   await setPromptText(prompt);
   await clickSend();
@@ -188,57 +161,7 @@ async function flowPro(prompt, effort) {
 
 async function flowDeepResearch(prompt) {
   await waitForElement("#prompt-textarea");
-
-  // Strategy 1: Try the model switcher dropdown for deep research
-  let found = false;
-  try {
-    await openModelSwitcher();
-    const menuItems = document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]');
-    for (const el of menuItems) {
-      if (/deep\s*research/i.test(el.textContent)) {
-        el.click();
-        found = true;
-        break;
-      }
-    }
-  } catch { /* continue to strategy 2 */ }
-
-  // Strategy 2: Try the + / plus button menu
-  if (!found) {
-    const plusSelectors = [
-      "#composer-plus-btn",
-      '[data-testid="composer-plus-btn"]',
-      '[data-testid*="plus"]',
-      '[aria-label="Attach"]',
-      'button[aria-label*="plus"]',
-      'button[aria-label*="more"]',
-    ];
-    let plusBtn = null;
-    for (const sel of plusSelectors) {
-      plusBtn = document.querySelector(sel);
-      if (plusBtn) break;
-    }
-
-    if (plusBtn) {
-      plusBtn.click();
-      await delay(400);
-      const menuItems = document.querySelectorAll('[role="menuitem"], [role="menuitemradio"], [role="option"]');
-      for (const el of menuItems) {
-        if (/deep\s*research/i.test(el.textContent)) {
-          el.click();
-          found = true;
-          break;
-        }
-      }
-    }
-  }
-
-  if (!found) {
-    logAvailableElements("flowDeepResearch failed");
-    throw new Error("Deep research option not found");
-  }
-
-  await delay(800);
+  await selectPlusMenuFeature("Deep research");
   await setPromptText(prompt);
   await clickSend();
 }
