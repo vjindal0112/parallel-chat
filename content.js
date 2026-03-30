@@ -4,6 +4,12 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function radixClick(element) {
+  element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}
+
 function waitForElement(selector, timeout = 15000) {
   return new Promise((resolve, reject) => {
     const el = document.querySelector(selector);
@@ -49,12 +55,14 @@ function waitForElementWithText(selector, text, timeout = 10000) {
   });
 }
 
+// ── Composer ──
+
 async function setPromptText(text) {
-  const textarea = await waitForElement("#prompt-textarea");
-  textarea.focus();
+  const editor = document.getElementById("prompt-textarea");
+  editor.focus();
   await delay(100);
 
-  // Select all existing content and replace with our text
+  // ProseMirror doesn't respond to value setting — use execCommand
   document.execCommand("selectAll", false, null);
   document.execCommand("insertText", false, text);
   await delay(300);
@@ -62,49 +70,82 @@ async function setPromptText(text) {
 
 async function clickSend() {
   await delay(300);
-  const btn = document.querySelector("#composer-submit-button")
-    || document.querySelector('[data-testid="send-button"]');
-  if (!btn) throw new Error("Send button not found");
+  const btn = await waitForElement('[data-testid="send-button"]', 5000);
   btn.click();
 }
 
 // ── Model Selection ──
 
-async function selectModel(testId) {
-  const modelBtn = await waitForElement('[data-testid="model-switcher-dropdown-button"]');
-  modelBtn.click();
-  await delay(400);
+async function selectModel(slug) {
+  // slug: 'gpt-5-3' | 'gpt-5-4-thinking' | 'gpt-5-4-pro'
+  const btn = await waitForElement('[data-testid="model-switcher-dropdown-button"]');
+  radixClick(btn);
+  await delay(300);
 
-  const modelOption = await waitForElement(`[data-testid="${testId}"]`);
-  modelOption.click();
-  await delay(500);
+  const item = await waitForElement(`[data-testid="model-switcher-${slug}"]`);
+  radixClick(item);
+  await delay(300);
 }
 
-async function selectThinkingEffort(effortText) {
-  // Click the thinking effort pill to open the dropdown
-  const pill = await waitForElement("button.__composer-pill", 5000);
-  pill.click();
-  await delay(400);
+// ── Thinking Effort ──
 
-  // Find and click the effort option
-  const option = await waitForElementWithText('[role="menuitemradio"]', effortText, 5000);
-  option.click();
+async function selectThinkingEffort(effortText) {
+  // effortText: 'Light' | 'Standard' | 'Extended' | 'Heavy'
+  const pill = await waitForElement("button.__composer-pill", 5000);
+  radixClick(pill);
   await delay(300);
+
+  const option = await waitForElementWithText('[role="menuitemradio"]', effortText, 5000);
+  radixClick(option);
+  await delay(200);
 }
 
 async function trySelectThinkingEffort(effortText) {
   try {
     await selectThinkingEffort(effortText);
   } catch {
-    // Effort pill may not be available for this model — continue without it
+    // Effort pill may not be available — continue without it
   }
+}
+
+// ── Plus Menu Features ──
+
+async function selectPlusMenuFeature(featureName) {
+  const plusBtn = await waitForElement('[data-testid="composer-plus-btn"]');
+  radixClick(plusBtn);
+  await delay(300);
+
+  // Try main menu first
+  const items = document.querySelectorAll('[role="menuitemradio"], [role="menuitem"]');
+  const target = Array.from(items).find(i => i.textContent.trim() === featureName);
+
+  if (target) {
+    radixClick(target);
+    await delay(300);
+    return;
+  }
+
+  // Feature might be in the "More" submenu
+  const moreItem = Array.from(items).find(i => i.textContent.trim() === "More");
+  if (moreItem) {
+    moreItem.focus();
+    moreItem.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await delay(300);
+
+    const subOption = await waitForElementWithText('[role="menuitemradio"]', featureName, 5000);
+    radixClick(subOption);
+    await delay(300);
+    return;
+  }
+
+  throw new Error(`Plus menu feature "${featureName}" not found`);
 }
 
 // ── Flows ──
 
 async function flowThinking(prompt, effort) {
   await waitForElement("#prompt-textarea");
-  await selectModel("model-switcher-gpt-5-4-thinking");
+  await selectModel("gpt-5-4-thinking");
   await selectThinkingEffort(effort);
   await setPromptText(prompt);
   await clickSend();
@@ -112,7 +153,7 @@ async function flowThinking(prompt, effort) {
 
 async function flowPro(prompt, effort) {
   await waitForElement("#prompt-textarea");
-  await selectModel("model-switcher-gpt-5-4-pro");
+  await selectModel("gpt-5-4-pro");
   await trySelectThinkingEffort(effort);
   await setPromptText(prompt);
   await clickSend();
@@ -120,18 +161,7 @@ async function flowPro(prompt, effort) {
 
 async function flowDeepResearch(prompt) {
   await waitForElement("#prompt-textarea");
-
-  // Open the + menu
-  const plusBtn = await waitForElement("#composer-plus-btn");
-  plusBtn.click();
-  await delay(400);
-
-  // Select "Deep research"
-  const drOption = await waitForElementWithText('[role="menuitemradio"]', "Deep research");
-  drOption.click();
-  await delay(800);
-
-  // Enter prompt (the composer may have reset after mode switch)
+  await selectPlusMenuFeature("Deep research");
   await setPromptText(prompt);
   await clickSend();
 }
