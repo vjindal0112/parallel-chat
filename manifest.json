@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Parallel Chat",
+  "version": "1.0.0",
+  "description": "Send one prompt to multiple ChatGPT models simultaneously",
+  "permissions": ["activeTab", "scripting", "tabs"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Parallel Chat"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

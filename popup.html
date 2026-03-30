@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Parallel Chat</h1>
+    <textarea id="prompt" placeholder="Enter your prompt..." rows="4"></textarea>
+    <div class="configs">
+      <label><input type="checkbox" value="thinking-standard" checked> Thinking (Standard)</label>
+      <label><input type="checkbox" value="thinking-extended" checked> Thinking (Extended)</label>
+      <label><input type="checkbox" value="pro-extended" checked> Pro (Extended)</label>
+      <label><input type="checkbox" value="deep-research" checked> Deep Research</label>
+    </div>
+    <button id="send-btn">Send to All</button>
+    <div id="status" class="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
