@@ -37,13 +37,20 @@ async function launchTab(prompt, config) {
 
 function waitForTabLoad(tabId) {
   return new Promise((resolve) => {
-    function listener(updatedTabId, changeInfo) {
-      if (updatedTabId === tabId && changeInfo.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
+    // Check if the tab is already loaded before attaching the listener,
+    // otherwise the "complete" event may have already fired and we'd wait forever.
+    chrome.tabs.get(tabId, (tab) => {
+      if (tab && tab.status === "complete") {
+        return resolve();
       }
-    }
-    chrome.tabs.onUpdated.addListener(listener);
+      function listener(updatedTabId, changeInfo) {
+        if (updatedTabId === tabId && changeInfo.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+      }
+      chrome.tabs.onUpdated.addListener(listener);
+    });
   });
 }
 
